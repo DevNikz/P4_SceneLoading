@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+service SceneGRPC{
+	rpc ProcessScene(SceneRequest) returns (SceneReply) {}
+}
+
+message SceneRequest{
+	//Insert code here
+}
+
+message SceneReply{
+	bool status = 1;
+}
