@@ -31,9 +31,25 @@ public:
     // Destroy mesh resources (must be called on main thread)
     void DestroyMesh(MeshHandle& h);
 
+    // Load a skybox cubemap from a folder containing files:
+    // <base>_rt, <base>_lf, <base>_up, <base>_dn, <base>_ft, <base>_bk
+    // The loader will try common extensions (.png, .jpg, .jpeg, .bmp, .tga)
+    // Returns true on success.
+    bool LoadSkybox(const std::string& folder_path);
+
+    // Render the skybox. Provide view and projection matrices. view must be the camera view matrix
+    // (the function removes translation so the skybox stays centered on the camera).
+    void RenderSkybox(const glm::mat4& view, const glm::mat4& proj);
+
 private:
     uint32_t CompileShader(uint32_t type, const char* src);
     uint32_t CreateProgram(const char* vs_src, const char* fs_src);
 
     uint32_t program_ = 0;
+
+    // Skybox resources
+    uint32_t skyboxProgram_ = 0;
+    uint32_t skyboxVAO_ = 0;
+    uint32_t skyboxVBO_ = 0;
+    uint32_t cubemapTex_ = 0;
 };

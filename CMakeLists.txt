@@ -90,6 +90,7 @@ add_executable(P4_Client
 add_dependencies(P4_Client proto_generated)
 target_compile_definitions(P4_Client PUBLIC "PROTOBUF_USE_DLLS")
 target_include_directories(P4_Client PRIVATE ${GENERATED_PROTO_DIR})
+target_include_directories(P4_Client PRIVATE ${CMAKE_SOURCE_DIR}/third_party/stb)
 
 # Robustly resolve imported targets provided by packages (vcpkg or system)
 # GLFW
@@ -151,6 +152,18 @@ if(TINYOBJ_TARGET STREQUAL "")
     message(FATAL_ERROR "Could not find an imported tinyobjloader target. Install via vcpkg and pass the vcpkg toolchain to CMake.")
 endif()
 
+# --- detect stb (vcpkg imported target) ---
+set(STB_TARGET "")
+if(TARGET stb::stb)
+    set(STB_TARGET stb::stb)
+elseif(TARGET stb)
+    set(STB_TARGET stb)
+endif()
+
+if(STB_TARGET STREQUAL "")
+    message(WARNING "Could not find an imported stb target. If you want to build skybox support you should install 'stb' via vcpkg and pass the vcpkg toolchain to CMake.")
+endif()
+
 # Link client against both networking and rendering deps
 target_link_libraries(P4_Client PRIVATE
     protobuf::libprotobuf
@@ -163,6 +176,7 @@ target_link_libraries(P4_Client PRIVATE
     ${GLM_TARGET}
     ${IMGUI_TARGET}
     ${TINYOBJ_TARGET}
+    ${STB_TARGET}
     OpenGL::GL
 
     imgui

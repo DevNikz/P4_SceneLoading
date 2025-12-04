@@ -4,7 +4,6 @@
 #include "gl_renderer.h"
 #include "scene_types.h"
 #include "camera.h"
-
 #include <grpcpp/grpcpp.h>
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
@@ -51,6 +50,10 @@ int main(int argc, char** argv) {
     // Renderer + upload queue which main thread will execute
     GLRenderer renderer;
     renderer.Init();
+    // Attempt to load skybox from the runtime's "Skybox" folder (the application runtime dir is out/build/x64-debug)
+    if (!renderer.LoadSkybox("Skybox")) {
+        std::cerr << "[Main] Skybox load failed or not present (expected folder: out/build/x64-debug/Skybox)\n";
+    }
     std::queue<GLUploadTask> upload_queue;
     std::mutex upload_mtx;
     std::condition_variable upload_cv;
@@ -255,6 +258,9 @@ int main(int argc, char** argv) {
             }
         }
         glm::vec3 base_offset = glm::vec3(base_index * scene_spacing, 0.0f, 0.0f);
+
+        // Render skybox first (so it sits behind everything)
+        renderer.RenderSkybox(view, proj);
 
         // Render logic:
         // - SHOW_NONE: render nothing (models are loaded & uploaded but hidden)
