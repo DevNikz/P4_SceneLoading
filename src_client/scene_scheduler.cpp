@@ -4,6 +4,7 @@
 
 using namespace std::chrono_literals;
 
+// SceneScheduler schedules background loads and keeps scene descriptors.
 SceneScheduler::SceneScheduler(SceneLoader* loader) : loader_(loader) {}
 SceneScheduler::~SceneScheduler() { Stop(); }
 
@@ -27,11 +28,11 @@ void SceneScheduler::Stop() {
     if (sched_thread_.joinable()) sched_thread_.join();
 }
 
+// Move prioritized scene to map end so it is considered first.
 void SceneScheduler::PrioritizeScene(const std::string& scene_id) {
     std::scoped_lock lk(mtx_);
     auto it = scenes_.find(scene_id);
     if (it != scenes_.end()) {
-        // move to end so it will be considered first by SchedulerThread scanning map order
         auto sd = it->second;
         scenes_.erase(it);
         scenes_.emplace(scene_id, sd);
@@ -43,7 +44,7 @@ void SceneScheduler::UnloadScene(const std::string& scene_id) {
     auto it = scenes_.find(scene_id);
     if (it != scenes_.end()) {
         it->second->state.store(SceneState::UNLOADED);
-        // GL resources should be freed by main thread/renderer when user presses Unload
+        // GL cleanup handled by main thread.
     }
 }
 
@@ -55,6 +56,7 @@ std::vector<std::shared_ptr<SceneDescriptor>> SceneScheduler::GetAllScenes() {
     return out;
 }
 
+// Scheduler thread: keep up to N scenes loading concurrently (N=5 here).
 void SceneScheduler::SchedulerThread() {
     while (running_.load()) {
         std::vector<std::shared_ptr<SceneDescriptor>> snapshot;

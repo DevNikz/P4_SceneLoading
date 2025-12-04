@@ -4,9 +4,11 @@
 #include <chrono>
 #include <thread>
 
+// LoadOBJToMeshData: parse .obj into interleaved positions and triangle indices.
+// This flattens faces into a triangle list; normals/uvs ignored for now.
 bool ModelLoader::LoadOBJToMeshData(const std::string& path, MeshData& out, float scale, int artificial_ms_delay) const {
     tinyobj::ObjReaderConfig cfg;
-    cfg.mtl_search_path = ""; 
+    cfg.mtl_search_path = "";
     tinyobj::ObjReader reader;
     if (!reader.ParseFromFile(path, cfg)) {
         std::cerr << "ModelLoader: tinyobj parse failed: " << path << "\n";
@@ -33,7 +35,6 @@ bool ModelLoader::LoadOBJToMeshData(const std::string& path, MeshData& out, floa
         }
     }
 
-    // optional artificial delay to ensure non-instant loads for UI/progress testing
     if (artificial_ms_delay > 0) {
         std::this_thread::sleep_for(std::chrono::milliseconds(artificial_ms_delay));
     }

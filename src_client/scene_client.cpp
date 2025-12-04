@@ -4,10 +4,12 @@
 #include <fstream>
 #include <iostream>
 
+// Thin wrapper around gRPC stub for synchronous calls used by the client UI.
 SceneClient::SceneClient(std::shared_ptr<grpc::Channel> channel)
     : stub_(scene::SceneService::NewStub(channel)) {
 }
 
+// GetSceneManifest: synchronous RPC, returns false on error.
 bool SceneClient::GetSceneManifest(const std::string& scene_id, scene::SceneManifest& out_manifest) {
     grpc::ClientContext ctx;
     scene::SceneRequest req;
@@ -20,6 +22,7 @@ bool SceneClient::GetSceneManifest(const std::string& scene_id, scene::SceneMani
     return true;
 }
 
+// StreamModelToFile: streams model data to disk; calls progress_cb during download.
 bool SceneClient::StreamModelToFile(const std::string& scene_id, const std::string& rel_path, const std::string& out_path, int64_t total_bytes, std::function<void(int64_t, int64_t)> progress_cb) {
     grpc::ClientContext ctx;
     scene::ModelRequest req;

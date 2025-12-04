@@ -11,12 +11,15 @@
 
 namespace fs = std::filesystem;
 
+// Constructor: store media root and streaming parameters.
 SceneServiceImpl::SceneServiceImpl(const std::string& media_root, size_t chunk_size, int chunk_delay_ms)
     : media_root_(media_root)
     , chunk_size_(chunk_size)
     , chunk_delay_ms_(chunk_delay_ms)
 {}
 
+// GetSceneManifest: synchronous RPC that enumerates .obj files in the scene folder
+// and returns model metadata and optional thumbnail bytes.
 grpc::Status SceneServiceImpl::GetSceneManifest(grpc::ServerContext* /*context*/, const scene::SceneRequest* request, scene::SceneManifest* response) {
     const std::string scene_id = request->scene_id();
     fs::path scene_dir = fs::path(media_root_) / scene_id;
@@ -37,7 +40,7 @@ grpc::Status SceneServiceImpl::GetSceneManifest(grpc::ServerContext* /*context*/
         }
     }
 
-    // optional: include first thumbnail file if present (thumbnail.png / thumbnail.jpg)
+    // include first thumbnail file if present
     const std::vector<std::string> thumb_names = { "thumbnail.png", "thumbnail.jpg", "thumb.png", "thumb.jpg" };
     for (auto const& tn : thumb_names) {
         fs::path thumb_path = scene_dir / tn;
@@ -54,6 +57,7 @@ grpc::Status SceneServiceImpl::GetSceneManifest(grpc::ServerContext* /*context*/
     return grpc::Status::OK;
 }
 
+// StreamModel: server-side streaming RPC that reads a model file in chunks and sends them.
 grpc::Status SceneServiceImpl::StreamModel(grpc::ServerContext* /*context*/, const scene::ModelRequest* request, grpc::ServerWriter<scene::Chunk>* writer) {
     const std::string scene_id = request->scene_id();
     const std::string rel_path = request->model_rel_path();
@@ -81,21 +85,18 @@ grpc::Status SceneServiceImpl::StreamModel(grpc::ServerContext* /*context*/, con
         chunk.set_offset(offset);
         chunk.set_last(false);
 
-        // send chunk
         if (!writer->Write(chunk)) {
-            // client cancelled or write failed
             return grpc::Status(grpc::StatusCode::CANCELLED, "Client cancelled streaming");
         }
 
         offset += static_cast<int64_t>(read_count);
 
-        // optional artificial delay to simulate network conditions / avoid instant loads
         if (chunk_delay_ms_ > 0) {
             std::this_thread::sleep_for(std::chrono::milliseconds(chunk_delay_ms_));
         }
     }
 
-    // final chunk marker (no data, last = true)
+    // final empty chunk marks end
     scene::Chunk last_chunk;
     last_chunk.set_offset(offset);
     last_chunk.set_last(true);
