@@ -6,7 +6,7 @@
 
 bool ModelLoader::LoadOBJToMeshData(const std::string& path, MeshData& out, float scale, int artificial_ms_delay) const {
     tinyobj::ObjReaderConfig cfg;
-    cfg.mtl_search_path = ""; // not using materials here
+    cfg.mtl_search_path = ""; 
     tinyobj::ObjReader reader;
     if (!reader.ParseFromFile(path, cfg)) {
         std::cerr << "ModelLoader: tinyobj parse failed: " << path << "\n";
@@ -21,7 +21,7 @@ bool ModelLoader::LoadOBJToMeshData(const std::string& path, MeshData& out, floa
     out.positions.clear();
     out.indices.clear();
     out.positions.reserve(attrib.vertices.size());
-    // We will expand every referenced vertex (no dedup), keeping indices sequential
+
     for (const auto& shape : shapes) {
         for (const auto& idx : shape.mesh.indices) {
             int vi = idx.vertex_index;

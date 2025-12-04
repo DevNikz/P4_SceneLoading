@@ -62,5 +62,8 @@ struct SceneDescriptor {
     // per-model bounds in scene-local space (center + radius)
     std::vector<ModelBounds> model_bounds;
 
+    // Index of the currently visible model (preloaded models remain available)
+    std::atomic<int> current_model_index{0};
+
     std::mutex mtx; // protects descriptor fields that aren't atomic
 };

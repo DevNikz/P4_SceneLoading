@@ -1,4 +1,3 @@
-
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 
@@ -27,11 +26,44 @@ void Camera::UpdateFromInput(GLFWwindow* window, double dt) {
     if (orbiting_) {
         double dx = mx - last_mouse_x_;
         double dy = my - last_mouse_y_;
-        yaw_deg_ += static_cast<float>(dx * 0.15);
+        // Inverted horizontal orbit: subtract dx to invert left/right
+        yaw_deg_ -= static_cast<float>(dx * 0.15);
         pitch_deg_ += static_cast<float>(-dy * 0.15);
         if (pitch_deg_ > 89.0f) pitch_deg_ = 89.0f;
         if (pitch_deg_ < -89.0f) pitch_deg_ = -89.0f;
         last_mouse_x_ = mx; last_mouse_y_ = my;
+    }
+
+    // Keyboard movement (WASD) — move the camera target in the view plane
+    if (window) {
+        // compute current camera position and forward/right vectors
+        glm::vec3 camPos = GetPosition();
+        glm::vec3 forward = glm::normalize(target_ - camPos);
+        // avoid degenerate forward
+        if (glm::length(forward) < 1e-6f) forward = glm::vec3(0.0f, 0.0f, -1.0f);
+        glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f)));
+        float moveSpeed = 5.0f * static_cast<float>(dt); // units per second * dt
+
+
+        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
+            target_ += forward * moveSpeed;
+        }
+        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
+            target_ -= forward * moveSpeed;
+        }
+        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
+            target_ -= right * moveSpeed;   
+        }
+        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
+            target_ += right * moveSpeed;   
+        }
+
+        if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS) {
+            target_ += glm::vec3(0.0f, moveSpeed, 0.0f);
+        }
+        if (glfwGetKey(window, GLFW_KEY_F) == GLFW_PRESS) {
+            target_ -= glm::vec3(0.0f, moveSpeed, 0.0f);
+        }
     }
 }
 

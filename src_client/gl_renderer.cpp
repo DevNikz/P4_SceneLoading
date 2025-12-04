@@ -106,8 +106,6 @@ MeshHandle GLRenderer::UploadMesh(const std::vector<float>& vertex_positions, co
     glBindVertexArray(0);
     h.index_count = static_cast<uint32_t>(indices.size());
 
-    std::cerr << "[GLRenderer] UploadMesh: VAO=" << h.vao << " VBO=" << h.vbo << " EBO=" << h.ebo
-              << " verts=" << (vertex_positions.size()/3) << " indices=" << indices.size() << "\n";
 
     LogGLErrorIfAny("UploadMesh");
     return h;
@@ -119,8 +117,6 @@ void GLRenderer::RenderMesh(const MeshHandle& h, const glm::mat4& model, const g
         std::cerr << "[GLRenderer] RenderMesh skipped (program=" << program_ << " VAO=" << h.vao << ")\n";
         return;
     }
-
-    std::cerr << "[GLRenderer] RenderMesh: VAO=" << h.vao << " idxCount=" << h.index_count << " program=" << program_ << "\n";
 
     glUseProgram(program_);
     GLint loc = glGetUniformLocation(program_, "uMVP");

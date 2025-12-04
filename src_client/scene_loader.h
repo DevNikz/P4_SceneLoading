@@ -1,7 +1,7 @@
 #pragma once
 
 #include "scene_types.h"
-#include "scene_client.h" 
+#include "scene_client.h" // your existing SceneClient
 #include <functional>
 #include <string>
 #include <thread>
@@ -18,7 +18,8 @@ class GLRenderer;
 
 class SceneLoader {
 public:
-    SceneLoader(SceneClient* client, GLRenderer* renderer, std::queue<GLUploadTask>& upload_queue, std::mutex& upload_mtx, std::condition_variable& upload_cv, const std::string& tmp_dir = "tmp");
+    // worker_count: number of background loader threads (default 4)
+    SceneLoader(SceneClient* client, GLRenderer* renderer, std::queue<GLUploadTask>& upload_queue, std::mutex& upload_mtx, std::condition_variable& upload_cv, const std::string& tmp_dir = "tmp", size_t worker_count = 4);
     ~SceneLoader();
 
     // Enqueue a scene to load asynchronously (returns immediately)
@@ -35,6 +36,7 @@ private:
     std::string tmp_dir_;
     std::vector<std::thread> workers_;
     std::atomic<bool> running_{ true };
+    size_t worker_count_{ 1 };
 
     std::mutex queue_mtx_;
     std::condition_variable queue_cv_;

@@ -20,6 +20,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+enum class ViewMode { SHOW_NONE, SHOW_SINGLE, SHOW_ALL };
+
 int main(int argc, char** argv) {
     // Setup gRPC channel to server
     std::string server_addr = (argc > 1) ? argv[1] : "localhost:50051";
@@ -66,6 +68,9 @@ int main(int argc, char** argv) {
     scheduler.Start();
 
     Camera camera;
+    std::string view_scene_id;
+    ViewMode view_mode = ViewMode::SHOW_NONE;
+    const float scene_spacing = 2.0f; // smaller spacing when showing all
 
     // Timing/FPS
     using clock = std::chrono::high_resolution_clock;
@@ -106,6 +111,18 @@ int main(int argc, char** argv) {
 
         // Simple UI: list scenes and show progress
         ImGui::Begin("Scenes");
+        // Global view controls
+        if (ImGui::Button("View All")) {
+            view_mode = ViewMode::SHOW_ALL;
+            view_scene_id.clear();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Hide Models")) {
+            view_mode = ViewMode::SHOW_NONE;
+            view_scene_id.clear();
+        }
+        ImGui::Separator();
+
         auto scenes = scheduler.GetAllScenes();
         int scene_index_ui = 0;
         for (auto& sd : scenes) {
@@ -113,7 +130,12 @@ int main(int argc, char** argv) {
             ImGui::Text("Scene: %s", sd->scene_id.c_str());
             SceneState st = sd->state.load();
             ImGui::SameLine(300);
-            ImGui::TextColored((st == SceneState::LOADED) ? ImVec4(0, 1, 0, 1) : ImVec4(1, 1, 0, 1), "%s", (st == SceneState::LOADED) ? "LOADED" : (st == SceneState::LOADING) ? "LOADING" : (st == SceneState::QUEUED) ? "QUEUED" : "UNLOADED");
+            ImGui::TextColored((st == SceneState::LOADED) ? ImVec4(0, 1, 0, 1) : ImVec4(1, 1, 0, 1),
+                               "%s",
+                               (st == SceneState::LOADED) ? "LOADED" :
+                               (st == SceneState::LOADING) ? "LOADING" :
+                               (st == SceneState::QUEUED) ? "QUEUED" : "UNLOADED");
+
             // per-scene small progress
             int64_t total_bytes = 0, got = 0;
             {
@@ -125,6 +147,7 @@ int main(int argc, char** argv) {
             }
             float pct = (total_bytes > 0) ? (float)got / (float)total_bytes : 0.0f;
             ImGui::ProgressBar(pct, ImVec2(-1, 0));
+
             if (ImGui::Button("Load")) {
                 if (sd->state.load() == SceneState::UNLOADED) {
                     loader.EnqueueLoad(sd);
@@ -142,25 +165,58 @@ int main(int argc, char** argv) {
             }
             ImGui::SameLine();
             if (ImGui::Button("View")) {
+                // prioritize and set single view to this scene
                 scheduler.PrioritizeScene(sd->scene_id);
-                // will frame below if bounds present
-            }
+                view_mode = ViewMode::SHOW_SINGLE;
+                view_scene_id = sd->scene_id;
 
-            {
+                // compute base_offset (location where hidden models spawn) and frame camera there
+                auto all_tmp = scheduler.GetAllScenes();
+                int base_index = 0;
+                for (int bi = 0; bi < (int)all_tmp.size(); ++bi) {
+                    if (all_tmp[bi]->scene_id == "scene05") { base_index = bi; break; }
+                }
+                glm::vec3 base_offset = glm::vec3(base_index * scene_spacing, 0.0f, 0.0f);
+
+                // frame camera to base_offset using the scene bounds radius if available
                 std::scoped_lock lk(sd->mtx);
                 if (!sd->model_bounds.empty()) {
-                    // compute combined bounds in world space (apply same scene offset used in Render loop)
-                    glm::vec3 minv(FLT_MAX), maxv(-FLT_MAX);
-                    glm::vec3 offset = glm::vec3(scene_index_ui * 5.0f, 0.0f, 0.0f);
-                    for (size_t m = 0; m < sd->model_bounds.size(); ++m) {
-                        glm::vec3 c = sd->model_bounds[m].center + offset;
-                        float r = sd->model_bounds[m].radius;
-                        minv = glm::min(minv, c - glm::vec3(r));
-                        maxv = glm::max(maxv, c + glm::vec3(r));
+                    // use the active model's radius if present
+                    int active = sd->current_model_index.load();
+                    if (active < 0) active = 0;
+                    if (active >= (int)sd->model_bounds.size()) active = (int)sd->model_bounds.size() - 1;
+                    float radius = sd->model_bounds[active].radius;
+                    // ensure minimal radius
+                    radius = glm::max(radius, 0.5f);
+                    camera.FrameBoundingSphere(base_offset, radius, (float)display_w / (float)display_h);
+                } else {
+                    // fallback: just set camera target to base_offset
+                    camera.SetTarget(base_offset);
+                }
+            }
+
+            // Model selector (Prev/Next) for scene
+            if (sd->state.load() == SceneState::LOADED) {
+                std::scoped_lock lk(sd->mtx);
+                int model_count = static_cast<int>(sd->models.size());
+                if (model_count > 0) {
+                    int idx = sd->current_model_index.load();
+                    if (idx < 0) idx = 0;
+                    if (idx >= model_count) idx = model_count - 1;
+                    if (ImGui::Button("Prev")) {
+                        idx = (idx - 1 + model_count) % model_count;
+                        sd->current_model_index.store(idx);
                     }
-                    glm::vec3 center = (minv + maxv) * 0.5f;
-                    float radius = glm::length(maxv - center);
-                    camera.FrameBoundingSphere(center, radius, (float)display_w / (float)display_h);
+                    ImGui::SameLine();
+                    if (ImGui::Button("Next")) {
+                        idx = (idx + 1) % model_count;
+                        sd->current_model_index.store(idx);
+                    }
+                    ImGui::SameLine();
+                    const std::string& name = sd->models[idx].name.empty() ? sd->models[idx].rel_path : sd->models[idx].name;
+                    ImGui::Text("%d/%d: %s", idx + 1, model_count, name.c_str());
+                } else {
+                    ImGui::Text("No models");
                 }
             }
 
@@ -171,10 +227,11 @@ int main(int argc, char** argv) {
 
         // FPS display
         frame_time_avg = 0.9 * frame_time_avg + 0.1 * dt;
-        fps = 1.0 / frame_time_avg;
+        fps = (frame_time_avg > 0.0) ? 1.0 / frame_time_avg : 0.0;
         ImGui::Begin("Debug");
         ImGui::Text("FPS: %.1f", fps);
         ImGui::Text("Cam pos: (%.2f, %.2f, %.2f)", camera.GetPosition().x, camera.GetPosition().y, camera.GetPosition().z);
+        ImGui::Text("View mode: %s", (view_mode == ViewMode::SHOW_ALL) ? "All" : (view_mode == ViewMode::SHOW_SINGLE) ? view_scene_id.c_str() : "None");
         ImGui::End();
 
         // Render
@@ -189,21 +246,63 @@ int main(int argc, char** argv) {
         auto proj = camera.GetProjectionMatrix((float)display_w / (float)display_h);
         glm::mat4 viewProj = proj * view;
 
-        // Render loaded scenes (simple overlap: draw each model with a translate based on scene index)
+        // Determine base offset index for scene05 (all hidden models spawn here)
+        int base_index = 4; // default to scene05 (registration order)
+        {
+            auto all_scenes = scheduler.GetAllScenes();
+            for (int i = 0; i < (int)all_scenes.size(); ++i) {
+                if (all_scenes[i]->scene_id == "scene05") { base_index = i; break; }
+            }
+        }
+        glm::vec3 base_offset = glm::vec3(base_index * scene_spacing, 0.0f, 0.0f);
+
+        // Render logic:
+        // - SHOW_NONE: render nothing (models are loaded & uploaded but hidden)
+        // - SHOW_SINGLE: render only selected scene's active model at base_offset (same place as scene05)
+        // - SHOW_ALL: render every loaded scene's active model at its own small offset (scene_index * spacing)
         {
             int scene_index = 0;
             auto all_scenes = scheduler.GetAllScenes();
             for (auto& sd : all_scenes) {
                 if (sd->state.load() != SceneState::LOADED) { ++scene_index; continue; }
+
+                // decide whether to render this scene
+                if (view_mode == ViewMode::SHOW_NONE) { ++scene_index; continue; }
+                if (view_mode == ViewMode::SHOW_SINGLE && sd->scene_id != view_scene_id) { ++scene_index; continue; }
+
                 std::scoped_lock lk(sd->mtx);
-                for (size_t mi = 0; mi < sd->mesh_handles.size(); ++mi) {
-                    const MeshHandle& mh = sd->mesh_handles[mi];
-                    if (mh.vao == 0) continue;
-                    glm::mat4 model = (sd->model_transforms.size() > mi) ? sd->model_transforms[mi] : glm::mat4(1.0f);
-                    // apply scene offset so overlapping scenes do not coincide exactly
-                    model = glm::translate(glm::mat4(1.0f), glm::vec3(scene_index * 5.0f, 0.0f, 0.0f)) * model;
-                    renderer.RenderMesh(mh, model, viewProj, glm::vec3(0.8f, 0.8f, 0.9f));
+                int active = sd->current_model_index.load();
+                if (active < 0) active = 0;
+                if (active >= (int)sd->mesh_handles.size()) { ++scene_index; continue; }
+
+                const MeshHandle& mh = sd->mesh_handles[active];
+                if (mh.vao == 0) { ++scene_index; continue; }
+
+                glm::mat4 model = (sd->model_transforms.size() > (size_t)active) ? sd->model_transforms[active] : glm::mat4(1.0f);
+
+                // choose offset:
+                // - for SHOW_ALL: small per-scene offset so models are side-by-side
+                // - for SHOW_SINGLE: place every visible model at base_offset (spawn location for hidden models)
+                glm::vec3 offset;
+                if (view_mode == ViewMode::SHOW_ALL) {
+                    offset = glm::vec3(scene_index * scene_spacing, 0.0f, 0.0f);
+                } else {
+                    // SHOW_SINGLE: all shown models (only one) appear at base_offset
+                    offset = base_offset;
                 }
+                model = glm::translate(glm::mat4(1.0f), offset) * model;
+                //This just nudges a specific model I couldn't get centered properly lol
+                float z_nudge = 0.0f;
+                if (sd->scene_id == "scene02") {
+
+                    z_nudge = -500.0f; 
+                }
+
+                offset += glm::vec3(0.0f, 0.0f, z_nudge);
+                // Force vertical alignment: ensure model's world Y equals offset.y (prevents models with different internal Y from sitting far down)
+                model[3].y = offset.y;
+
+                renderer.RenderMesh(mh, model, viewProj, glm::vec3(0.8f, 0.8f, 0.9f));
                 ++scene_index;
             }
         }

@@ -7,15 +7,18 @@
 #include <algorithm>           
 #include <cfloat>             
 #include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
+// <glm/gtc/matrix_transform.hpp> no longer required for translate/scale helpers we build manually
 
 namespace fs = std::filesystem;
 
-SceneLoader::SceneLoader(SceneClient* client, GLRenderer* renderer, std::queue<GLUploadTask>& upload_queue, std::mutex& upload_mtx, std::condition_variable& upload_cv, const std::string& tmp_dir)
-    : client_(client), renderer_(renderer), tmp_dir_(tmp_dir), upload_queue_(upload_queue), upload_mtx_(upload_mtx), upload_cv_(upload_cv) {
+SceneLoader::SceneLoader(SceneClient* client, GLRenderer* renderer, std::queue<GLUploadTask>& upload_queue, std::mutex& upload_mtx, std::condition_variable& upload_cv, const std::string& tmp_dir, size_t worker_count)
+    : client_(client), renderer_(renderer), tmp_dir_(tmp_dir), upload_queue_(upload_queue), upload_mtx_(upload_mtx), upload_cv_(upload_cv), worker_count_(worker_count) {
     fs::create_directories(tmp_dir_);
-    // single worker (can increase)
-    workers_.emplace_back(&SceneLoader::WorkerThread, this);
+    // spawn requested number of worker threads
+    if (worker_count_ == 0) worker_count_ = 1;
+    for (size_t i = 0; i < worker_count_; ++i) {
+        workers_.emplace_back(&SceneLoader::WorkerThread, this);
+    }
 }
 
 SceneLoader::~SceneLoader() {
@@ -83,6 +86,8 @@ void SceneLoader::WorkerThread() {
                 scene->model_transforms[i] = glm::mat4(1.0f);
                 scene->model_bounds[i] = { glm::vec3(0.0f), 0.0f };
             }
+            // ensure visible index starts at 0 for this scene
+            scene->current_model_index.store(0);
         }
 
         // Download each model sequentially (could be parallelized)
@@ -120,11 +125,22 @@ void SceneLoader::WorkerThread() {
             }
             glm::vec3 center = (minv + maxv) * 0.5f;
             glm::vec3 extent = maxv - minv;
-            float max_extent = 0.0f;
-            max_extent = std::max({ extent.x, extent.y, extent.z });
+            // portable max of three components
+            float max_extent = std::max(std::max(extent.x, extent.y), extent.z);
             float orig_radius = 0.5f * max_extent;
             float scale = (max_extent > 0.0f) ? (1.0f / max_extent) : 1.0f;
-            glm::mat4 model_matrix = glm::translate(glm::mat4(1.0f), -center) * glm::scale(glm::mat4(1.0f), glm::vec3(scale));
+
+            // Build model matrix manually (S * T) so translation is scaled correctly
+            glm::mat4 T = glm::mat4(1.0f);
+            T[3] = glm::vec4(-center, 1.0f); // translation by -center
+
+            glm::mat4 S = glm::mat4(1.0f);
+            S[0][0] = scale;
+            S[1][1] = scale;
+            S[2][2] = scale;
+
+            // IMPORTANT: apply scale first, then translation (S * T)
+            glm::mat4 model_matrix = S * T; // correct order: model' = scale * (p - center)
 
             std::cerr << "[SceneLoader] Parsed " << mp.rel_path << " verts=" << (mesh.positions.size()/3)
                       << " indices=" << mesh.indices.size() << " bbox_min=(" << minv.x << "," << minv.y << "," << minv.z
