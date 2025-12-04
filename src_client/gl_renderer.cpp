@@ -6,7 +6,6 @@
 #include <string>
 
 #define STB_IMAGE_IMPLEMENTATION
-// If you installed stb via vcpkg, include as below. If you provide stb_image.h in project include path, fine.
 #include <stb_image.h>
 
 static void LogGLErrorIfAny(const char* when) {
@@ -79,6 +78,10 @@ GLRenderer::~GLRenderer() {
         glDeleteVertexArrays(1, &skyboxVAO_);
         std::cerr << "[GLRenderer] Deleted skybox VAO " << skyboxVAO_ << "\n";
     }
+
+    if (planeEBO_) { glDeleteBuffers(1, &planeEBO_); std::cerr << "[GLRenderer] Deleted plane EBO " << planeEBO_ << "\n"; planeEBO_ = 0; }
+    if (planeVBO_) { glDeleteBuffers(1, &planeVBO_); std::cerr << "[GLRenderer] Deleted plane VBO " << planeVBO_ << "\n"; planeVBO_ = 0; }
+    if (planeVAO_) { glDeleteVertexArrays(1, &planeVAO_); std::cerr << "[GLRenderer] Deleted plane VAO " << planeVAO_ << "\n"; planeVAO_ = 0; }
 }
 
 void GLRenderer::Init() {
@@ -90,6 +93,32 @@ void GLRenderer::Init() {
     skyboxProgram_ = CreateProgram(kSkyboxVS, kSkyboxFS);
     if (!skyboxProgram_) std::cerr << "[GLRenderer] Failed to create skybox program\n";
     else std::cerr << "[GLRenderer] Created skybox program " << skyboxProgram_ << "\n";
+
+    // Create a simple large plane under the origin (XZ plane at Y = -1.0)
+    // We'll create a quad of size 100x100 centered at origin.
+    {
+        float y = -1.0f;
+        float s = 50.0f; // half-size
+        std::vector<float> verts = {
+            -s, y, -s,
+             s, y, -s,
+             s, y,  s,
+            -s, y,  s
+        };
+        std::vector<uint32_t> indices = { 0,1,2, 2,3,0 };
+        planeIndexCount_ = static_cast<uint32_t>(indices.size());
+        glGenVertexArrays(1, &planeVAO_);
+        glBindVertexArray(planeVAO_);
+        glGenBuffers(1, &planeVBO_);
+        glBindBuffer(GL_ARRAY_BUFFER, planeVBO_);
+        glBufferData(GL_ARRAY_BUFFER, verts.size() * sizeof(float), verts.data(), GL_STATIC_DRAW);
+        glGenBuffers(1, &planeEBO_);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, planeEBO_);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(uint32_t), indices.data(), GL_STATIC_DRAW);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+        glBindVertexArray(0);
+    }
 
     LogGLErrorIfAny("Init");
 }
@@ -182,6 +211,26 @@ void GLRenderer::RenderMesh(const MeshHandle& h, const glm::mat4& model, const g
     glDrawElements(GL_TRIANGLES, (GLsizei)h.index_count, GL_UNSIGNED_INT, 0);
     glBindVertexArray(0);
     LogGLErrorIfAny("RenderMesh");
+}
+
+void GLRenderer::RenderPlane(const glm::mat4& viewProj, const glm::vec3& color) {
+    if (!program_ || !planeVAO_ || planeIndexCount_ == 0) return;
+
+    glUseProgram(program_);
+    GLint loc = glGetUniformLocation(program_, "uMVP");
+    if (loc >= 0) {
+        glm::mat4 model = glm::mat4(1.0f);
+        glm::mat4 mvp = viewProj * model;
+        glUniformMatrix4fv(loc, 1, GL_FALSE, &mvp[0][0]);
+    }
+    GLint locc = glGetUniformLocation(program_, "uColor");
+    if (locc >= 0) glUniform3fv(locc, 1, &color[0]);
+
+    glBindVertexArray(planeVAO_);
+    glDrawElements(GL_TRIANGLES, (GLsizei)planeIndexCount_, GL_UNSIGNED_INT, 0);
+    glBindVertexArray(0);
+
+    LogGLErrorIfAny("RenderPlane");
 }
 
 void GLRenderer::DestroyMesh(MeshHandle& h) {

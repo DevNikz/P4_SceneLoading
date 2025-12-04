@@ -28,6 +28,9 @@ public:
     // Render a mesh with a given model matrix and viewProj matrix and color
     void RenderMesh(const MeshHandle& h, const glm::mat4& model, const glm::mat4& viewProj, const glm::vec3& color);
 
+    // Render a simple ground plane (large quad) beneath models. Call after Init and before rendering models.
+    void RenderPlane(const glm::mat4& viewProj, const glm::vec3& color = glm::vec3(0.35f, 0.35f, 0.35f));
+
     // Destroy mesh resources (must be called on main thread)
     void DestroyMesh(MeshHandle& h);
 
@@ -52,4 +55,10 @@ private:
     uint32_t skyboxVAO_ = 0;
     uint32_t skyboxVBO_ = 0;
     uint32_t cubemapTex_ = 0;
+
+    // Plane resources
+    uint32_t planeVAO_ = 0;
+    uint32_t planeVBO_ = 0;
+    uint32_t planeEBO_ = 0;
+    uint32_t planeIndexCount_ = 0;
 };

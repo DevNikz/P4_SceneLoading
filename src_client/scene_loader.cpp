@@ -33,8 +33,12 @@ void SceneLoader::EnqueueLoad(const std::shared_ptr<SceneDescriptor>& scene) {
 }
 
 void SceneLoader::Shutdown() {
+    // Request cancellation for any in-progress RPCs and stop queue processing.
+    cancel_requested_.store(true);
     running_ = false;
     queue_cv_.notify_all();
+    // Wake any threads waiting on upload_cv (main thread drain may be waiting)
+    upload_cv_.notify_all();
     for (auto& t : workers_) if (t.joinable()) t.join();
     workers_.clear();
 }
@@ -95,8 +99,18 @@ void SceneLoader::WorkerThread() {
                 mp.bytes_received.store(got);
             };
 
-            if (!client_->StreamModelToFile(scene->scene_id, mp.rel_path, out_path.string(), mp.size_bytes, progress_cb)) {
-                scene->state.store(SceneState::ERROR_STATE);
+            // Pass the explicit cancel token (cancel_requested_) so StreamModelToFile can abort mid-download.
+            bool ok = client_->StreamModelToFile(scene->scene_id, mp.rel_path, out_path.string(), mp.size_bytes, progress_cb, &cancel_requested_);
+            if (!ok) {
+                if (cancel_requested_.load()) {
+                    // Download was cancelled because loader is shutting down -> mark as UNLOADED (graceful)
+                    std::cerr << "[SceneLoader] Download cancelled for " << mp.rel_path << " (shutdown)\n";
+                    scene->state.store(SceneState::UNLOADED);
+                } else {
+                    // Actual error during streaming
+                    std::cerr << "[SceneLoader] StreamModelToFile failed for " << mp.rel_path << "\n";
+                    scene->state.store(SceneState::ERROR_STATE);
+                }
                 break;
             }
 

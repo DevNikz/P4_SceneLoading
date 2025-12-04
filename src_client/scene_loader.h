@@ -36,6 +36,7 @@ private:
     std::string tmp_dir_;
     std::vector<std::thread> workers_;
     std::atomic<bool> running_{ true };
+    std::atomic<bool> cancel_requested_{ false }; 
     size_t worker_count_{ 1 };
 
     std::mutex queue_mtx_;
